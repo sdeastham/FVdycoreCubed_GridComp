@@ -80,7 +80,7 @@ module AdvCore_GridCompMod
       logical     :: chk_mass=.false.
 
       integer,  parameter :: ntiles_per_pe = 1
-      logical,  parameter :: run_dry = .True.
+      logical             :: run_dry
 
 ! Tracer I/O History stuff
 ! -------------------------------------
@@ -130,6 +130,7 @@ contains
       type(ESMF_VM)                           :: VM
       integer                                 :: comm, ndt
       integer                                 :: p_split=1
+      integer :: run_dry_int
 
 !=============================================================================
 
@@ -267,6 +268,16 @@ contains
           VLOCATION  = MAPL_VLocationEdge,               RC=STATUS  )
      VERIFY_(STATUS)
 
+     ! GCHP CTM: post-advection surface pressure
+     call MAPL_AddExportSpec ( gc,                                  &
+          SHORT_NAME = 'PLEAdv',                                    &
+          LONG_NAME  = 'post_advection_pressure_from_fv3',          &
+          UNITS      = 'Pa'   ,                                     &
+          PRECISION  = ESMF_KIND_R8,                                &
+          DIMS       = MAPL_DimsHorzVert,                           &
+          VLOCATION  = MAPL_VLocationEdge,               RC=STATUS  )
+     VERIFY_(STATUS)
+
 ! 3D Tracers
      do ntracer=1,ntracers
         write(myTracer, "('TEST_TRACER',i1.1)") ntracer-1
@@ -314,6 +325,12 @@ contains
       VERIFY_(STATUS)
       if(adjustl(DYCORE)=="FV3") FV3_DynCoreIsRunning = .true.
       if(adjustl(DYCORE)=="FV3+ADV") FV3_DynCoreIsRunning = .true.
+
+      ! Are we running dry?
+      call MAPL_GetResource(MAPL, Run_Dry_Int, label='RUN_DRY:', &
+                                  default=0, RC=STATUS )
+      VERIFY_(STATUS)
+      Run_Dry = (Run_Dry_Int>0)
 
       ! Start up FMS/MPP
       !-------------------------------------------
@@ -520,6 +537,7 @@ contains
 ! Exports
       REAL(REAL8), POINTER, DIMENSION(:,:,:)   :: ePLE     ! GCHP only
       REAL(REAL8), POINTER, DIMENSION(:,:,:)   :: eDryPLE  ! GCHP only
+      REAL(REAL8), POINTER, DIMENSION(:,:,:)   :: ePLEAdv  ! GCHP only
 
 ! Locals
       REAL(FVPRC), POINTER, DIMENSION(:,:,:)   :: CX
@@ -530,6 +548,7 @@ contains
       REAL(FVPRC), POINTER, DIMENSION(:,:,:)   :: PLE1
       REAL(FVPRC), POINTER, DIMENSION(:,:,:)   :: DryPLE0 ! GCHP only
       REAL(FVPRC), POINTER, DIMENSION(:,:,:)   :: DryPLE1 ! GCHP only
+      REAL(FVPRC), POINTER, DIMENSION(:,:,:)   :: PLEAdv  ! GCHP only
       REAL(FVPRC), POINTER, DIMENSION(:,:,:)   :: QV0
       REAL(FVPRC), POINTER, DIMENSION(:)       :: AK
       REAL(FVPRC), POINTER, DIMENSION(:)       :: BK
@@ -628,6 +647,7 @@ contains
       ALLOCATE( PLE1(IM,JM,LM+1) )
       ALLOCATE( DryPLE0(IM,JM,LM+1) ) ! GCHP only
       ALLOCATE( DryPLE1(IM,JM,LM+1) ) ! GCHP only
+      ALLOCATE( PLEAdv(IM,JM,LM+1 ) ) ! GCHP only
       ALLOCATE(  MFX(IM,JM,LM  ) )
       ALLOCATE(  MFY(IM,JM,LM  ) )
       ALLOCATE(   CX(IM,JM,LM  ) )
@@ -643,6 +663,9 @@ contains
         CX = iCX
         CY = iCY
        QV0 = iQV0
+
+      ! This will be an output only
+      PLEAdv = 0.0
 
       ! The quantities to be advected come as friendlies in a bundle
       !  in the import state.
@@ -880,13 +903,13 @@ contains
                call offline_tracer_advection(TRACERS, DryPLE0, DryPLE1, MFX, MFY, CX, CY, &
                                              FV_Atm(1)%gridstruct, FV_Atm(1)%flagstruct, FV_Atm(1)%bd, &
                                              FV_Atm(1)%domain, AK, BK, PTOP, FV_Atm(1)%npx, FV_Atm(1)%npy, FV_Atm(1)%npz,   &
-                                             NQ, dt)
+                                             NQ, dt, PLEAdv)
             else
                ! GEOS CTM or updated GCHP CTM: use moist pressure
                call offline_tracer_advection(TRACERS, PLE0, PLE1, MFX, MFY, CX, CY, &
                                              FV_Atm(1)%gridstruct, FV_Atm(1)%flagstruct, FV_Atm(1)%bd, &
                                              FV_Atm(1)%domain, AK, BK, PTOP, FV_Atm(1)%npx, FV_Atm(1)%npy, FV_Atm(1)%npz,   &
-                                             NQ, dt)
+                                             NQ, dt, PLEAdv)
             endif
 
          endif
@@ -972,6 +995,11 @@ contains
       _VERIFY(STATUS)
       ePLE(:,:,:) = PLE1(:,:,:)
 
+      ! Pressure as estimated by the advection solver
+      call MAPL_GetPointer ( EXPORT, ePLEAdv, 'PLEAdv', ALLOC=.TRUE., RC=STATUS )
+      _VERIFY(STATUS)
+      ePLEAdv(:,:,:) = PLEAdv(:,:,:)
+
       deallocate( advTracers, stat=STATUS )
       VERIFY_(STATUS)
       DEALLOCATE( AK ,stat=STATUS )
@@ -983,6 +1011,7 @@ contains
       DEALLOCATE( PLE1 )
       DEALLOCATE( DryPLE0 ) ! GCHP only
       DEALLOCATE( DryPLE1 ) ! GCHP only
+      DEALLOCATE( PLEAdv  ) ! GCHP only
       DEALLOCATE(  MFX )
       DEALLOCATE(  MFY )
       DEALLOCATE(   CX )
