@@ -83,7 +83,7 @@ module AdvCore_GridCompMod
 
 ! Tracer I/O History stuff
 ! -------------------------------------
-      integer, parameter         :: ntracers=11
+      integer, parameter         :: ntracers=10
       integer                    :: ntracer
       character(len=ESMF_MAXSTR) :: myTracer
       character(len=ESMF_MAXSTR) :: tMassStr
@@ -897,11 +897,13 @@ contains
                advTracers(N)%content    = TRACERS(:,:,:,N)
             end if
 ! Fill Export States
-            write(myTracer, "('TEST_TRACER',i1.1)") N-1
-            call MAPL_GetPointer(EXPORT, temp3D, TRIM(myTracer), rc=status)
-            VERIFY_(STATUS)
-            if ((associated(temp3D)) .and. (N<=ntracers)) then
-               temp3D = TRACERS(:,:,:,N)
+            if (NQ.le.ntracers) then
+               write(myTracer, "('TEST_TRACER',i1.1)") N-1
+               call MAPL_GetPointer(EXPORT, temp3D, TRIM(myTracer), rc=status)
+               VERIFY_(STATUS)
+               if ((associated(temp3D)) .and. (N<=ntracers)) then
+                  temp3D = TRACERS(:,:,:,N)
+               endif
             endif
          enddo
 
