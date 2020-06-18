@@ -78,6 +78,7 @@ module AdvCore_GridCompMod
       logical     :: FV3_DynCoreIsRunning=.false.
       integer     :: AdvCore_Advection=1
       logical     :: chk_mass=.false.
+      logical     :: run_dry
 
       integer,  parameter :: ntiles_per_pe = 1
 
@@ -129,6 +130,7 @@ contains
       type(ESMF_VM)                           :: VM
       integer                                 :: comm, ndt
       integer                                 :: p_split=1
+      integer                                 :: opt_int
 
 !=============================================================================
 
@@ -256,6 +258,16 @@ contains
           VLOCATION  = MAPL_VLocationEdge,               RC=STATUS  )
      VERIFY_(STATUS)
 
+      ! GCHP CTM: post-advection pressure edges
+     call MAPL_AddExportSpec ( gc,                                  &
+          SHORT_NAME = 'PLEAdv',                                    &
+          LONG_NAME  = 'post-advection_pressure_at_layer_edges',    &
+          UNITS      = 'Pa'   ,                                     &
+          PRECISION  = ESMF_KIND_R8,                                &
+          DIMS       = MAPL_DimsHorzVert,                           &
+          VLOCATION  = MAPL_VLocationEdge,               RC=STATUS  )
+     VERIFY_(STATUS)
+
 ! 3D Tracers
      do ntracer=1,ntracers
         write(myTracer, "('TEST_TRACER',i1.1)") ntracer-1
@@ -303,6 +315,11 @@ contains
       VERIFY_(STATUS)
       if(adjustl(DYCORE)=="FV3") FV3_DynCoreIsRunning = .true.
       if(adjustl(DYCORE)=="FV3+ADV") FV3_DynCoreIsRunning = .true.
+
+      call MAPL_GetResource(MAPL, opt_int , label='RUN_DRY:', &
+                                  default=0, RC=STATUS )
+      VERIFY_(STATUS)
+      run_dry = (opt_int>0)
 
       ! Start up FMS/MPP
       !-------------------------------------------
@@ -508,6 +525,7 @@ contains
 ! Exports
       REAL(REAL8), POINTER, DIMENSION(:,:,:)   :: ePLE     ! GCHP only
       REAL(REAL8), POINTER, DIMENSION(:,:,:)   :: eDryPLE  ! GCHP only
+      REAL(REAL8), POINTER, DIMENSION(:,:,:)   :: ePLEAdv  ! GCHP only
 
 ! Locals
       REAL(FVPRC), POINTER, DIMENSION(:,:,:)   :: CX
@@ -518,6 +536,7 @@ contains
       REAL(FVPRC), POINTER, DIMENSION(:,:,:)   :: PLE1
       REAL(FVPRC), POINTER, DIMENSION(:,:,:)   :: DryPLE0 ! GCHP only
       REAL(FVPRC), POINTER, DIMENSION(:,:,:)   :: DryPLE1 ! GCHP only
+      REAL(FVPRC), POINTER, DIMENSION(:,:,:)   :: PLEAdv  ! GCHP only
       REAL(FVPRC), POINTER, DIMENSION(:)       :: AK
       REAL(FVPRC), POINTER, DIMENSION(:)       :: BK
       REAL(REAL8), allocatable :: ak_r8(:),bk_r8(:)
@@ -613,6 +632,7 @@ contains
       ALLOCATE( PLE1(IM,JM,LM+1) )
       ALLOCATE( DryPLE0(IM,JM,LM+1) ) ! GCHP only
       ALLOCATE( DryPLE1(IM,JM,LM+1) ) ! GCHP only
+      ALLOCATE(  PLEAdv(IM,JM,LM+1) ) ! GCHP only
       ALLOCATE(  MFX(IM,JM,LM  ) )
       ALLOCATE(  MFY(IM,JM,LM  ) )
       ALLOCATE(   CX(IM,JM,LM  ) )
@@ -845,7 +865,7 @@ contains
          call offline_tracer_advection(TRACERS, DryPLE0, DryPLE1, MFX, MFY, CX, CY, &
                                        FV_Atm(1)%gridstruct, FV_Atm(1)%flagstruct, FV_Atm(1)%bd, &
                                        FV_Atm(1)%domain, AK, BK, PTOP, FV_Atm(1)%npx, FV_Atm(1)%npy, FV_Atm(1)%npz,   &
-                                       NQ, dt)
+                                       NQ, dt, PLEAdv)
 
          endif
 
@@ -919,6 +939,9 @@ contains
       call MAPL_GetPointer ( EXPORT, ePLE, 'PLE', ALLOC=.TRUE., RC=STATUS )
       _VERIFY(STATUS)
       ePLE(:,:,:) = PLE1(:,:,:)
+      call MAPL_GetPointer ( EXPORT, ePLEAdv, 'PLEAdv', ALLOC=.TRUE., RC=STATUS )
+      _VERIFY(STATUS)
+      ePLEAdv(:,:,:) = PLEAdv(:,:,:)
 
       deallocate( advTracers, stat=STATUS )
       VERIFY_(STATUS)
@@ -931,6 +954,7 @@ contains
       DEALLOCATE( PLE1 )
       DEALLOCATE( DryPLE0 ) ! GCHP only
       DEALLOCATE( DryPLE1 ) ! GCHP only
+      DEALLOCATE( PLEAdv  ) ! GCHP only
       DEALLOCATE(  MFX )
       DEALLOCATE(  MFY )
       DEALLOCATE(   CX )
