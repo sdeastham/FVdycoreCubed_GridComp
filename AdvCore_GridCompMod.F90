@@ -84,7 +84,7 @@ module AdvCore_GridCompMod
 
 ! Tracer I/O History stuff
 ! -------------------------------------
-      integer, parameter         :: ntracers=11
+      integer, parameter         :: ntracers=10
       integer                    :: ntracer
       character(len=ESMF_MAXSTR) :: myTracer
       character(len=ESMF_MAXSTR) :: tMassStr
