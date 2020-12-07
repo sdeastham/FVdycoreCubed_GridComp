@@ -69,6 +69,8 @@ module AdvCore_GridCompMod
       USE FV_StateMod,     only: FV_Atm
       use CubeGridPrototype, only: register_grid_and_regridders
 
+      USE MAPL_EtaHybridVerticalCoordinateMod
+
       implicit none
       private
 
@@ -90,6 +92,16 @@ module AdvCore_GridCompMod
       real(FVPRC), SAVE          :: TMASS0(ntracers)
       real(REAL8), SAVE          ::  MASS0
       logical    , SAVE          :: firstRun=.true.
+
+      TYPE FV3_State
+         PRIVATE
+         TYPE(EtaHybridVerticalCoordinate) :: EHVC       ! Vertical coordinate description
+      END TYPE FV3_State
+
+      ! Hook for the ESMF
+      TYPE FV3_Wrap
+         TYPE(FV3_State), POINTER :: PTR => null()  ! Ptr to FV3_State
+      END TYPE FV3_Wrap
 
 ! !PUBLIC MEMBER FUNCTIONS:
 
@@ -121,6 +133,8 @@ contains
 !
 !EOP
 
+       TYPE(FV3_State), POINTER               :: myState       ! Legacy state
+       TYPE(FV3_Wrap)                         :: wrap          ! Wrapper for myState
       character(len=ESMF_MAXSTR)              :: IAm
       integer                                 :: STATUS
       character(len=ESMF_MAXSTR)              :: COMP_NAME
@@ -129,6 +143,7 @@ contains
       type(ESMF_VM)                           :: VM
       integer                                 :: comm, ndt
       integer                                 :: p_split=1
+      CHARACTER(LEN=ESMF_MAXSTR)              :: EtaConfigFile ! Vertical coord configuration file
 
 !=============================================================================
 
@@ -355,6 +370,23 @@ contains
       VERIFY_(STATUS)
       DT = ndt
 
+      ! Get and store the vertical grid
+      !--------------------------------------------------
+      ALLOCATE( myState, stat=STATUS )
+      _VERIFY(STATUS)
+      wrap%ptr => myState
+
+      ! Store internal state with EHVC object in the gridded component
+      CALL ESMF_UserCompSetInternalState( GC, 'FV3_State', wrap, STATUS )
+      _VERIFY(STATUS)
+
+      call MAPL_GetResource( MAPL, EtaConfigFile, 'VERT_CONFIG:', default='AkBk_Config.rc', RC=STATUS )
+      VERIFY_(STATUS)
+
+      if (MAPL_am_I_Root()) write(*,'(2a)') 'FV3: Reading vertical coord from ', Trim(EtaConfigFile)
+      myState%EHVC = EtaHybridVerticalCoordinate(EtaConfigFile, RC=STATUS )
+      VERIFY_(STATUS)
+
       ! Start up FV if AdvCore is running without FV3_DynCoreIsRunning
       !--------------------------------------------------
       if (.NOT. FV3_DynCoreIsRunning) then
@@ -556,6 +588,9 @@ contains
       character(len=ESMF_MAXSTR), allocatable :: biggerlist(:)
       integer, parameter                  :: XLIST_MAX = 60
 
+      TYPE(FV3_State), POINTER               :: myState       ! Legacy state
+      TYPE(FV3_Wrap)                         :: wrap          ! Wrapper for myState
+
 ! Get my name and set-up traceback handle
 ! ---------------------------------------
 
@@ -580,6 +615,9 @@ contains
 
 ! Get AKs and BKs for vertical grid
 !----------------------------------
+      Call ESMF_UserCompGetInternalState(GC,'FV3_State',wrap,STATUS)
+      VERIFY_(STATUS)
+      myState => wrap%ptr
       AllOCATE( AK(LM+1) ,stat=STATUS )
       VERIFY_(STATUS)
       AllOCATE( BK(LM+1) ,stat=STATUS )
@@ -588,11 +626,25 @@ contains
       VERIFY_(STATUS)
       AllOCATE( BK_r8(LM+1) ,stat=STATUS )
       VERIFY_(STATUS)
-      call set_eta(LM,LS,ptop_r8,pint_r8,ak_r8,bk_r8)
+      Call myState%EHVC%get_eta(ptop_r8,pint_r8,Ak_r8,Bk_r8,RC=STATUS)
+      VERIFY_(STATUS)
+      LM = Size(Ak_r8) - 1
+      LS = -1
+      !call set_eta(LM,LS,ptop_r8,pint_r8,ak_r8,bk_r8)
       ptop=ptop_r8
       pint=pint_r8
       ak=ak_r8
       bk=bk_r8
+      !If (MAPL_am_I_Root()) Then
+      !    write(*,*) 'AKBk printout'
+      !    !write(*,*) 'SOURCE: m_set_eta'
+      !    write(*,*) 'SOURCE: EHVC'
+      !    write(*,'(a,2(x,E16.5E4))') 'PTOP, PINT:', ptop, pint
+      !    write(*,'(a,2(x,I6))')      'LM,   LS  :', LM, LS
+      !    Do I=1,LM+1
+      !       write(*,'(a,x,I0.3,a,2(x,E16.5E4))') ' --> L',I,' AkBk:',Ak(I),Bk(I)
+      !    End Do
+      !End If
 
       CALL MAPL_GetPointer(IMPORT, iPLE0, 'PLE0', ALLOC = .TRUE., RC=STATUS)
       VERIFY_(STATUS)
