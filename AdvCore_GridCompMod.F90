@@ -79,6 +79,7 @@ module AdvCore_GridCompMod
       integer     :: AdvCore_Advection=1
       logical     :: chk_mass=.false.
       logical     :: run_dry
+      logical     :: run_free
 
       integer,  parameter :: ntiles_per_pe = 1
 
@@ -330,6 +331,11 @@ contains
                                   default=0, RC=STATUS )
       VERIFY_(STATUS)
       run_dry = (opt_int>0)
+
+      call MAPL_GetResource(MAPL, opt_int , label='RUN_FREE:', &
+                                  default=0, RC=STATUS )
+      VERIFY_(STATUS)
+      run_free = (opt_int>0)
 
       ! Start up FMS/MPP
       !-------------------------------------------
@@ -894,16 +900,24 @@ contains
                call offline_tracer_advection(TRACERS, PLE0, PLE1, MFX, MFY, CX, CY, &
                                              FV_Atm(1)%gridstruct, FV_Atm(1)%flagstruct, FV_Atm(1)%bd, &
                                              FV_Atm(1)%domain, AK, BK, PTOP, FV_Atm(1)%npx, FV_Atm(1)%npy, FV_Atm(1)%npz,   &
-                                             NAdv, dt, PLEAdv)
+                                             NAdv, dt, PLEAdv, run_free)
             else
                ! Usee dry pressure
                call offline_tracer_advection(TRACERS, DryPLE0, DryPLE1, MFX, MFY, CX, CY, &
                                              FV_Atm(1)%gridstruct, FV_Atm(1)%flagstruct, FV_Atm(1)%bd, &
                                              FV_Atm(1)%domain, AK, BK, PTOP, FV_Atm(1)%npx, FV_Atm(1)%npy, FV_Atm(1)%npz,   &
-                                             NAdv, dt, PLEAdv)
+                                             NAdv, dt, PLEAdv, run_free)
 
             endif
          endif
+
+         if (run_free) then
+             if (run_dry) then
+                 DryPLE1 = PLEAdv
+             else
+                 PLE1 = PLEAdv
+             end if
+         end if
 
          ! Update tracer mass conservation
          !-------------------------------------------------------------------------
