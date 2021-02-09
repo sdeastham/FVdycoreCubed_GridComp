@@ -256,6 +256,16 @@ contains
           VLOCATION  = MAPL_VLocationEdge,               RC=STATUS  )
      VERIFY_(STATUS)
 
+     ! GCHP: add post-advection pressure export
+     call MAPL_AddExportSpec ( gc,                                  &
+          SHORT_NAME = 'PLEAdv',                                    &
+          LONG_NAME  = 'post_advection_pressure_at_layer_edges',    &
+          UNITS      = 'Pa'   ,                                     &
+          PRECISION  = ESMF_KIND_R8,                                &
+          DIMS       = MAPL_DimsHorzVert,                           &
+          VLOCATION  = MAPL_VLocationEdge,               RC=STATUS  )
+     VERIFY_(STATUS)
+
 ! 3D Tracers
      do ntracer=1,ntracers
         ! GCHP: fix string formatting bug caught with debug flags on
@@ -510,6 +520,7 @@ contains
 ! Exports
       REAL(REAL8), POINTER, DIMENSION(:,:,:)   :: ePLE     ! GCHP
       REAL(REAL8), POINTER, DIMENSION(:,:,:)   :: eDryPLE  ! GCHP
+      REAL(REAL8), POINTER, DIMENSION(:,:,:)   :: ePLEAdv  ! GCHP
 
 ! Locals
       REAL(FVPRC), POINTER, DIMENSION(:,:,:)   :: CX
@@ -518,6 +529,7 @@ contains
       REAL(FVPRC), POINTER, DIMENSION(:,:,:)   :: MFY
       REAL(FVPRC), POINTER, DIMENSION(:,:,:)   :: PLE0
       REAL(FVPRC), POINTER, DIMENSION(:,:,:)   :: PLE1
+      REAL(FVPRC), POINTER, DIMENSION(:,:,:)   :: PLEAdv  ! GCHP
       REAL(FVPRC), POINTER, DIMENSION(:,:,:)   :: DryPLE0 ! GCHP
       REAL(FVPRC), POINTER, DIMENSION(:,:,:)   :: DryPLE1 ! GCHP
       REAL(FVPRC), POINTER, DIMENSION(:)       :: AK
@@ -615,12 +627,16 @@ contains
 
       ALLOCATE( PLE0(IM,JM,LM+1) )
       ALLOCATE( PLE1(IM,JM,LM+1) )
+      ALLOCATE( PLEAdv(IM,JM,LM+1) )  ! GCHP
       ALLOCATE( DryPLE0(IM,JM,LM+1) ) ! GCHP
       ALLOCATE( DryPLE1(IM,JM,LM+1) ) ! GCHP
       ALLOCATE(  MFX(IM,JM,LM  ) )
       ALLOCATE(  MFY(IM,JM,LM  ) )
       ALLOCATE(   CX(IM,JM,LM  ) )
       ALLOCATE(   CY(IM,JM,LM  ) )
+
+      ! For safety
+      PLEAdv = 0.0d0
 
       PLE0 = iPLE0
       PLE1 = iPLE1
@@ -841,7 +857,7 @@ contains
                                        FV_Atm(1)%gridstruct, FV_Atm(1)%flagstruct, FV_Atm(1)%bd, &
 
                                        FV_Atm(1)%domain, AK, BK, PTOP, FV_Atm(1)%npx, FV_Atm(1)%npy, FV_Atm(1)%npz,   &
-                                       NQ, dt)
+                                       NQ, dt, PLEAdv)
          endif
 
          ! Update tracer mass conservation
@@ -917,6 +933,9 @@ contains
       call MAPL_GetPointer ( EXPORT, ePLE, 'PLE', ALLOC=.TRUE., RC=STATUS )
       _VERIFY(STATUS)
       ePLE(:,:,:) = PLE1(:,:,:)
+      call MAPL_GetPointer ( EXPORT, ePLEAdv, 'PLEAdv', ALLOC=.TRUE., RC=STATUS )
+      _VERIFY(STATUS)
+      ePLEAdv(:,:,:) = PLEAdv(:,:,:)
 
       deallocate( advTracers, stat=STATUS )
       VERIFY_(STATUS)
@@ -927,6 +946,7 @@ contains
 
       DEALLOCATE( PLE0 )
       DEALLOCATE( PLE1 )
+      DEALLOCATE( PLEAdv )  ! GCHP
       DEALLOCATE( DryPLE0 ) ! GCHP
       DEALLOCATE( DryPLE1 ) ! GCHP
       DEALLOCATE(  MFX )
